@@ -116,10 +116,10 @@ def render_wallpaper(subs: int):
         draw.line([(0, y), (W, y)], fill=(v, v, v + 10))
 
     pad = int(W * 0.08)
-    top = int(H * 0.18)
+    top = int(H * 0.30)
 
     title_font = load_font(int(H * 0.035))
-    big_font = load_font(int(H * 0.06))
+    big_font = load_font(int(H * 0.045))
     small_font = load_font(int(H * 0.03))
 
     draw.text((pad, top), "Road to 10 000", fill=(230, 230, 240), font=title_font)
