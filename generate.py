@@ -30,35 +30,77 @@ def load_font(size: int):
     return ImageFont.load_default()
 
 
-def fetch_subs_livecounts(channel: str) -> int:
+import re
+import requests
+
+def _parse_count(text: str) -> int:
     """
-    IMPORTANT:
-    Livecounts n'est pas une API officielle YouTube.
-    Ça peut changer. Mais c'est le moyen "sans clé" le plus simple.
+    Convertit '100', '1.2K', '1,2 k', '1,2 M' etc -> int
     """
-    # Endpoint souvent utilisé par des wrappers non officiels.
-    # Si jamais ça casse un jour, on remplacera par l'API YouTube officielle (clé).
-    url = f"https://livecounts.io/api/youtube-live-subscriber-counter/{channel}"
-    r = requests.get(url, timeout=15)
+    t = text.strip().lower()
+    t = t.replace("\u202f", " ").replace("\xa0", " ")  # espaces insécables
+    t = t.replace("abonnés", "").replace("subscribers", "").strip()
+
+    # garde uniquement chiffres, . , K M
+    m = re.search(r"([\d\.,\s]+)\s*([km]?)", t)
+    if not m:
+        raise RuntimeError(f"Impossible de parser le nombre: '{text}'")
+
+    num = m.group(1).strip().replace(" ", "")
+    suffix = m.group(2)
+
+    # normalisation virgule -> point
+    num = num.replace(",", ".")
+    val = float(num)
+
+    if suffix == "k":
+        val *= 1000
+    elif suffix == "m":
+        val *= 1_000_000
+
+    return int(val)
+
+def fetch_subs_scrape(channel_id: str) -> int:
+    """
+    Récupère les abonnés depuis la page YouTube (sans API).
+    channel_id doit être du type UC...
+    """
+    if not channel_id.startswith("UC"):
+        raise RuntimeError("Pour cette méthode, CHANNEL doit être un Channel ID qui commence par 'UC'.")
+
+    url = f"https://www.youtube.com/channel/{channel_id}/about"
+
+    headers = {
+        "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36",
+        "Accept-Language": "en-US,en;q=0.9",  # on force l'anglais pour faciliter le parsing
+    }
+
+    r = requests.get(url, headers=headers, timeout=20)
     r.raise_for_status()
-    data = r.json()
+    html = r.text
 
-    # Selon les variantes d’API, le champ peut changer.
-    # On tente plusieurs clés possibles.
-    for k in ["counts", "subscriberCount", "subscribers", "count"]:
-        if k in data and isinstance(data[k], (int, float, str)):
-            try:
-                return int(data[k])
-            except Exception:
-                pass
+    # YouTube embed souvent le compteur dans du JSON dans le HTML
+    # On cherche une occurrence type: "subscriberCountText":{"simpleText":"100 subscribers"}
+    patterns = [
+        r'"subscriberCountText"\s*:\s*\{\s*"simpleText"\s*:\s*"([^"]+)"\s*\}',
+        r'"subscriberCountText"\s*:\s*\{\s*"accessibility"\s*:\s*\{\s*"accessibilityData"\s*:\s*\{\s*"label"\s*:\s*"([^"]+)"',
+    ]
 
-    # Certains formats mettent la valeur dans un sous-objet
-    if "data" in data and isinstance(data["data"], dict):
-        for k in ["subscribers", "subscriberCount", "count"]:
-            if k in data["data"]:
-                return int(data["data"][k])
+    for pat in patterns:
+        m = re.search(pat, html)
+        if m:
+            text = m.group(1)
+            # ex: "100 subscribers" ou "1.2K subscribers"
+            return _parse_count(text)
 
-    raise RuntimeError(f"Impossible de lire les abonnés depuis Livecounts. Réponse: {data}")
+    # fallback: parfois "100 subscribers" apparait ailleurs
+    m2 = re.search(r'([\d\.,]+)\s*(K|M)?\s*subscribers', html, re.IGNORECASE)
+    if m2:
+        raw = m2.group(0)
+        return _parse_count(raw)
+
+    raise RuntimeError("Impossible de trouver subscriberCountText dans la page YouTube (format changé / page différente).")
+
 
 
 def render_wallpaper(subs: int):
