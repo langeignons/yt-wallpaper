@@ -167,6 +167,6 @@ if __name__ == "__main__":
     if not CHANNEL:
         raise SystemExit("Tu dois définir CHANNEL (channel id/handle selon endpoint).")
 
-    subs = fetch_subs_livecounts(CHANNEL)
+    subs = fetch_subs_scrape(CHANNEL)
     render_wallpaper(subs)
     print(f"OK -> {OUT_PATH} (subs={subs})")
